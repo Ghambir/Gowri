@@ -1,0 +1,106 @@
+import cv2
+import numpy as np
+import time
+
+# Function to get the centroid of a contour
+def get_contour_centroid(contour):
+    M = cv2.moments(contour)
+    if M["m00"] != 0:
+        cx = int(M["m10"] / M["m00"])
+        cy = int(M["m01"] / M["m00"])
+        return cx, cy
+    else:
+        return None
+
+# Read the video
+
+video_path = r'C:\Users\pnvgo\OneDrive\Desktop\VID-20231206-WA0003.mp4'
+cap = cv2.VideoCapture(video_path)
+
+# Check if the video opened successfully
+if not cap.isOpened():
+    print("Error: Could not open video.")
+    exit()
+
+# Get video properties
+fps = cap.get(cv2.CAP_PROP_FPS)
+frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+duration = frame_count / fps
+
+# Define the output video writer
+fourcc = cv2.VideoWriter_fourcc(*'XVID')
+output_path = 'output_video.avi'
+out = cv2.VideoWriter(output_path, fourcc, fps, (int(cap.get(3)), int(cap.get(4))))
+
+# Initialize variables
+quadrant_numbers = {4: (0, 0, int(cap.get(3) / 2), int(cap.get(4) / 2)),
+                    3: (int(cap.get(3) / 2), 0, int(cap.get(3)), int(cap.get(4) / 2)),
+                    1: (0, int(cap.get(4) / 2), int(cap.get(3) / 2), int(cap.get(4))),
+                    2: (int(cap.get(3) / 2), int(cap.get(4) / 2), int(cap.get(3)), int(cap.get(4)))}
+
+# Define color ranges for ball detection
+color_ranges = {
+    'yellow': ([20, 100, 100], [30, 255, 255]),
+    'white': ([40, 100, 100], [80, 255, 255]),
+    'blue': ([100, 100, 100], [140, 255, 255])
+}
+
+# Open a text file for recording events
+text_file_path = 'output_events.txt'
+with open(text_file_path, 'w') as text_file:
+    text_file.write("Time, Quadrant Number, Ball Colour, Event Type\n")
+
+# Start processing frames
+start_time = time.time()
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    # Convert the frame to HSV for color-based segmentation
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+    for color, (lower, upper) in color_ranges.items():
+        mask = cv2.inRange(hsv, np.array(lower), np.array(upper))
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        for contour in contours:
+            centroid = get_contour_centroid(contour)
+
+            if centroid is not None:
+                cx, cy = centroid
+
+                # Check which quadrant the ball is in
+                for quadrant, (x, y, w, h) in quadrant_numbers.items():
+                    if x < cx < x + w and y < cy < y + h:
+                        text_position = (x + 10, y + 30)  # Adjusted text position
+                        cv2.putText(frame, f'Quadrant {quadrant}', text_position, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+
+                        # Draw ball color information
+                        color_text_position = (x + 10, y + 60)  # Adjusted text position
+                        cv2.putText(frame, f'Color: {color}', color_text_position, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+
+                        # Record entry or exit event in the text file
+                        current_time = time.time() - start_time
+                        with open(text_file_path, 'a') as text_file:
+                            text_file.write(f"{current_time:.2f}, {quadrant}, {color}, Entry\n")
+
+    # Overlay text and timestamp
+    timestamp = time.time() - start_time
+    cv2.putText(frame, f'Timestamp: {timestamp:.2f}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+
+    out.write(frame)
+
+    # Display processed video in real-time
+    cv2.imshow('Processed Video', frame)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+# Release video capture and writer
+cap.release()
+out.release()
+
+# Wait for key press before closing the window
+cv2.waitKey(0)
+cv2.destroyAllWindows()
